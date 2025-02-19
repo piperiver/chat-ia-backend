@@ -139,5 +139,22 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+app.get('/api/health', (req, res) => {
+    try {
+      res.status(200).json({
+        status: 'OK',
+        timestamp: new Date(),
+        uptime: process.uptime(),
+        memory: process.memoryUsage(),
+        version: process.env.npm_package_version || '1.0.0'
+      });
+    } catch (error) {
+      res.status(500).json({
+        status: 'ERROR',
+        message: error.message
+      });
+    }
+  });
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, '0.0.0.0', () => console.log(`Servidor corriendo en puerto ${PORT}`));
