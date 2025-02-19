@@ -5,6 +5,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { OpenAI } from 'openai';
 
+
 dotenv.config();
 
 const app = express();
@@ -12,10 +13,11 @@ app.use(cors());
 app.use(express.json());
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const MAX_MESSAGES = process.env.MAX_MESSAGES; // Cuando la conversación sea larga, resume
 
-// Información sobre Felipe Rivera para que la IA responda con contexto
-const userProfile = `
-Felipe Rivera es un desarrollador de software con más de 10 años de experiencia, actualmente vive en colombia en una hermosa ciudad llamada Cali. Especializado en el desarrollo web y móvil. Inició su carrera como Full Stack Developer, adquiriendo sólidas habilidades en backend y bases de datos, y ha trabajado en proyectos de fintech, startups, e-commerce y e-learning. Se destaca por su capacidad para liderar equipos y gestionar proyectos complejos.
+
+const userProfileV1 = `
+Felipe Rivera es un desarrollador de software con más de 10 años de experiencia, actualmente vive en colombia en una hermosa ciudad llamada Cali y tiene 30 años. Especializado en el desarrollo web y móvil. Inició su carrera como Full Stack Developer, adquiriendo sólidas habilidades en backend y bases de datos, y ha trabajado en proyectos de fintech, startups, e-commerce y e-learning. Se destaca por su capacidad para liderar equipos y gestionar proyectos complejos.
 
 **Experiencia Laboral:**
 - **SOY HENRY** – Technical Lead Frontend (08/2023 - 01/2025, 15 meses):  
@@ -65,28 +67,28 @@ Felipe Rivera es un desarrollador de software con más de 10 años de experienci
 Felipe es un profesional adaptable, orientado a resultados y siempre actualizado en las últimas tendencias tecnológicas, preparado para enfrentar nuevos desafíos y aportar valor en cada proyecto.
 `;
 
-const userProfile2 = `
-Felipe Rivera es un Frontend Developer con más de 10 años de experiencia en el desarrollo web y móvil. Destaca como Technical Lead en Soy Henry, donde lideró equipos y optimizó procesos, y ha trabajado en empresas como Skydropx, Wolox (Accenture) y The Bridge Social. Además, cuenta con experiencia como Full Stack Developer en proyectos de fintech, startups, e-commerce y e-learning.
-Principales tecnologías: React, React Native, Next.js, TypeScript, GraphQL, CI/CD y AWS Amplify.
-Habilidades clave: liderazgo, desarrollo de soluciones escalables y optimización de flujos de trabajo.
-`;
+const userProfile = `Felipe Rivera es un desarrollador de software con 10+ años de experiencia especializado en desarrollo frontend y móvil. Tiene liderazgo técnico y experiencia en fintech, startups, e-commerce y e-learning. Reside en Cali, Colombia, y tiene 30 años.
 
+**Experiencia Destacada:**
+- **Technical Lead Frontend – Soy Henry (08/2023 - 01/2025):** Lideró equipo de 4 personas. Tecnologías: Next.js 13, TypeScript, CI/CD, AWS Amplify, Scrum, AntDesign, Storybook. Logros: Implementación de semantic release y automatización de pipelines.
+- **Frontend Developer Senior – Wolox (12/2020 - 03/2022):** Desarrollo de mapas interactivos y landings. Tecnologías: React 17, TypeScript, Material UI.
+- **Frontend Developer Senior – The Bridge Social (12/2022 - 07/2023):** Funcionalidades para banco digital Qik. Tecnologías: React Native 0.64, GraphQL, React.
+- **Full Stack Developer – Experiencia previa (2015 - 2020):** Proyectos de software financiero, e-learning, plataformas móviles y gobierno. Tecnologías: Laravel, Ionic, PHP, MySQL, SQL Server.
 
-// Lista de palabras clave para permitir temas relacionados
-// const allowedKeywords = [
-//     "experiencia", "trabajo", "tecnología", "proyectos", "habilidades", "frontend", "backend", "React", "Next.js", "Nest.js", "desarrollo"
-//   ];
+**Tecnologías Principales:**
+- **Frontend:** React, React Native, Next.js, TypeScript, GraphQL, React Testing Library, Material UI, Storybook, Module Federation, NX Monorepo.
+- **Backend:** Node.js (Express, Nest.js), PHP (Laravel, CodeIgniter).
+- **Bases de Datos:** MySQL, PostgreSQL, SQL Server, MongoDB.
+- **DevOps y Otros:** CI/CD, AWS Amplify, Docker, Scrum, Atomic Design, diseño responsivo.
+
+**Educación:**
+- Tecnólogo en Sistemas – Antonio José Camacho (2012-2015).`;
 
 app.post('/api/chat', async (req, res) => {
-  const { message } = req.body;
-
-  // Filtrar preguntas irrelevantes
-//   if (!allowedTopics.some(topic => message.toLowerCase().includes(topic))) {
-//     return res.json({ reply: "Solo puedo responder preguntas relacionadas con mi experiencia laboral y tecnologías que domino." });
-//   }
-
-//   try {
-
+  const { message, prevMessages } = req.body;
+  let newMessages = prevMessages.length > 0 ? prevMessages.map(m => ({role: m.role, content: m.text})) : [];
+    
+  try {
     const moderationResponse = await openai.moderations.create({ input: message });
     const flagged = moderationResponse.results[0].flagged;
     if (flagged) {
@@ -94,26 +96,47 @@ app.post('/api/chat', async (req, res) => {
     }
 
 
+    if (newMessages.length > MAX_MESSAGES) {
+        const resumen = await openai.chat.completions.create({
+          model: "gpt-4-turbo",
+          messages: [
+            ...newMessages,
+            { role: "user", content: "Resume esta conversación brevemente para que podamos continuar." }
+          ],
+          max_tokens: 200,
+        });
+        const resumenTexto = resumen.choices[0].message.content;
+
+        newMessages = [
+          { role: "system", content: `Resumen del chat hasta ahora: ${resumenTexto}` }
+        ];
+      }
+ 
+    const conversation = [
+        ...newMessages,
+        { role: "system", content: `Vas a pasarte por mi, quien te realizara las preguntas, sera un reclutador que esta interesado en mi perfil, asi que se amigable y hazme lucir bien, esta es toda la informacion sobre mi:\n${userProfile}\n. Tambien puedes utilizar el historial del chat para responder. Si no puedes responder, responde solo con 'no relacionada'.` },
+        { role: "user", content: message },
+    ];
+
     // Paso único: Clasificación y generación de respuesta en una sola consulta
     const completion = await openai.chat.completions.create({
         model: "gpt-3.5-turbo",
-        messages: [
-          { role: "system", content:`Usa la siguiente información para responder preguntas sobre Felipe Rivera:\n${userProfile}\nSi la pregunta es sobre su experiencia laboral, responde con detalle. Si no, responde solo con 'no relacionada'.` },
-          { role: "user", content: message },
-        ],
-        max_tokens: 100,
+        temperature: 0.7,
+        // model: "gpt-4-turbo",
+        messages: conversation,
+        max_tokens: 200, 
       });
   
       const responseText = completion.choices[0].message.content.toLowerCase();
       if (responseText.includes("no relacionada")) {
         return res.json({ reply: "Solo puedo responder preguntas relacionadas con mi experiencia laboral y tecnologías que domino." });
       }
-  
+
       res.json({ reply: responseText });
     
-//   } catch (error) {
-//     res.status(500).json({ error: "Error al procesar la solicitud." });
-//   }
+  } catch (error) {
+    res.status(500).json({ error: "Error al procesar la solicitud." });
+  }
 });
 
 const PORT = process.env.PORT || 5000;
